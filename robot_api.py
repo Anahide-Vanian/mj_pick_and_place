@@ -585,6 +585,138 @@ class RobotAPI:
         return {"status": "success"}
 
 
+    #--------------Additional useful functions for verifications (if needed)
+
+    def is_gripper_open(self):
+        """
+        Returns True if the gripper is open
+        False if closed
+        None if unknown state
+        """
+        i = 6  # Gripper actuator ID
+        # Check the name
+        # name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+        # print(f"Actuator {i} ({name}):")
+
+        with self.data_lock:
+            ctrl_value = self.data.ctrl[i]#control input
+
+        try:
+            # We use np.isclose for comparison with tolerance
+            if np.isclose(ctrl_value, 0, atol=1e-3):#We check if the control value of the gripper is 0 = OPen state
+
+                print(f"Control value = {ctrl_value}: Gripper open")
+                return True
+            
+            elif np.isclose(ctrl_value, 255, atol=1e-3):#255 = closed
+                print(f"Control value = {ctrl_value}: Gripper closed")
+                return False
+            else:
+                #Other values to be modified according your needs
+
+                print(f"Control value = {ctrl_value}: State is unknown")
+                return None
+        except Exception as e:
+            print(f"Error checking gripper state: {e}")
+            return None
+
+    def is_robot_conf_at(self, expected_q):
+        """
+        Return True if the robot is at the expected joint configuration
+        expected_q is as: [q0,q1,..q5]
+        """
+        with self.data_lock:
+            #ACtual joint configuration of the robot
+            current_q = pnp.get_joints()
+
+        #We convert expected_q to a numpy array
+        expected_q = np.array(expected_q)
+        tol = 0.05
+
+        if np.allclose(current_q, expected_q, atol=tol):
+
+            return True
+        else:
+            return False
+        
+
+    def is_robot_ee_at(self, expected_ee_pos, tolerance=0.05):
+        """
+        expected_ee_pos is the expected end-effector position [x, y, z]
+        tolerance is in meters (example here 0.05 m = 5 cm)
+        Note: Due to IK approximations you can have 1 or 2cm errors
+
+        Returns True if the end-effector is at expected position and within the tolerance
+        """
+        with self.data_lock:
+            #Current end-effector position 
+            current_ee_pos = pnp.get_ee_mujoco()
+
+        #Convert expected_ee_pos to a numpy array
+        expected_ee_pos = np.array(expected_ee_pos)
+
+        # Use np.allclose for array comparison
+        if np.allclose(current_ee_pos, expected_ee_pos, atol=tolerance):
+            return True
+        else:
+            return False
+
+    def is_gripper_tip_at(self, expected_pos, tolerance=0.06):
+        """
+        This usesfor the gripper offset (0.116m) from the wrist.
+        IMportant note: The IK solver in pnp.py adds gripper_offset to Z when solving,
+        which means the wrist ends up 0.116m above the target position.
+        The actual gripper tip positionis then additional 0.116 m below the wrist.
+
+        expected_pos is the expected gripper tip position [x, y, z]
+
+        Returns True if gripper tip is at expected position (with tolerance)
+        """
+        with self.data_lock:
+            
+            current_ee_pos = pnp.get_ee_mujoco()#wrist position
+
+        #NOte:the IK solver adds gripper_offset when solving !
+        # So we need to subtract gripper_offset from wrist to get actual gripper tip position
+
+        #In MUjoco coordinate system:
+        #Z-axis points upwards(standard convention)
+        #So when the wrist is at some height, then the fripper fingers are lower down (in the negative Z direction)
+        # Therefore: gripper_tip_pos = wrist position - [0, 0, 0.116]
+
+        gripper_tip_pos = current_ee_pos - np.array([0, 0, pnp.gripper_offset])
+
+        # Convert expected_pos to numpy array
+        expected_pos = np.array(expected_pos)
+
+        # Use np.allclose for array comparison
+        if np.allclose(gripper_tip_pos, expected_pos, atol=tolerance):
+            return True
+        else:
+            return False
+        
+    def is_obj_at(self, obj_mj_name, expected_pos):
+        """
+        Return True if the object is at the expected position
+
+        obj_mj_name: name of the object in mujoco
+        expected_pos: Expected position [x, y, z]
+        """
+        with self.data_lock:
+            current_pos = pnp.get_body_pos(obj_mj_name)
+
+        #The expected_pos is converted to a numpy array
+        expected_pos = np.array(expected_pos)
+        tol = 0.05
+
+        #We compare using a tolerance check
+        if np.allclose(current_pos, expected_pos, atol=tol):
+            return True
+        else:
+            return False
+
+
+
 # ------------------------------------
 # Global instance:
 # Create a single global instance thatyou can important in your code. This ensures all code uses the same robot/simulation instance
